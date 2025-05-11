@@ -1,11 +1,11 @@
 import random
 
 def guess_number(input_func=input):
-    number = random.randint(1, 5)  # ОШИБКА: теперь число от 1 до 5, а не до 10
+    number = random.randint(1, 10)  # ОШИБКА ИСПРАВЛЕНА: теперь число от 1 до 10, а не до 5
     attempts = 0
     max_attempts = 3
 
-    print("Guess a number between 1 and 10! You have 3 attempts.")  # Но пишем, что до 10
+    print("Guess a number between 1 and 10! You have 3 attempts.")  
 
     while attempts < max_attempts:
         try:
