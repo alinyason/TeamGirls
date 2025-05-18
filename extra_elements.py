@@ -1,4 +1,3 @@
-
 import pygame
 #import random
 
@@ -7,8 +6,8 @@ pygame.init()
 # Константы
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 600
-PINK = (255, 140, 155)
-BLACK = (0, 0, 0)
+BROWN = (50, 35, 12)
+WHITE = (255, 255, 255)
 GREEN = (0, 255, 0)
 RED = (255, 0, 0)
 current_question_index = 0  # индекс текущего вопроса
@@ -25,7 +24,7 @@ class LearningElement:
         self.answered = False
 
     def display_question(self, screen, font, y_offset=50):
-        question_surface = font.render(self.question, True, BLACK)
+        question_surface = font.render(self.question, True, WHITE)
         question_rect = question_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
         screen.blit(question_surface, question_rect)
 
@@ -58,7 +57,7 @@ class MultipleChoiceQuestion(LearningElement):
         super().display_question(screen, font, y_offset)
         self.option_rects = []
         for i, option in enumerate(self.options):
-            option_surface = font.render(f"{i+1}. {option}", True, BLACK)
+            option_surface = font.render(f"{i+1}. {option}", True, WHITE)
             option_rect = option_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset + 50 + (i * 40)))
             screen.blit(option_surface, option_rect)
             self.option_rects.append(option_rect)
@@ -112,18 +111,18 @@ class MatchingQuestion(LearningElement):
         col1_x = SCREEN_WIDTH // 4
         col2_x = SCREEN_WIDTH * 3 // 4
         for i, item in enumerate(self.column1):
-            item_surface = font.render(item, True, BLACK)
+            item_surface = font.render(item, True, WHITE)
             item_rect = item_surface.get_rect(center=(col1_x, y_offset + i * 50))
-            pygame.draw.rect(screen, BLACK, item_rect.inflate(10, 10), 2)
+            pygame.draw.rect(screen, WHITE, item_rect.inflate(10, 10), 2)
             screen.blit(item_surface, item_rect)
             if self.selected_item == ("column1", i):
                 pygame.draw.rect(screen, GREEN, item_rect.inflate(14, 14), 2)
 
         # Отрисовка второго столбца
         for i, item in enumerate(self.column2):
-            item_surface = font.render(item, True, BLACK)
+            item_surface = font.render(item, True, WHITE)
             item_rect = item_surface.get_rect(center=(col2_x, y_offset + i * 50))
-            pygame.draw.rect(screen, BLACK, item_rect.inflate(10, 10), 2)
+            pygame.draw.rect(screen, WHITE, item_rect.inflate(10, 10), 2)
             screen.blit(item_surface, item_rect)
             if self.selected_item == ("column2", i):
                 pygame.draw.rect(screen, GREEN, item_rect.inflate(14, 14), 2)
@@ -216,13 +215,13 @@ def attempt_coin_pickup(player, coin):
                     answered_correctly = question.check_answer(None, screen, font)
                     running_question = False
 
-        screen.fill(PINK)
+        screen.fill(BROWN)
         question.display_question(screen, font)
 
         if isinstance(question, TextAnswerQuestion):
-            input_surface = font.render(input_text, True, BLACK)
+            input_surface = font.render(input_text, True, WHITE)
             input_rect = input_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
-            pygame.draw.rect(screen, BLACK, input_rect.inflate(10, 10), 2)
+            pygame.draw.rect(screen, WHITE, input_rect.inflate(10, 10), 2)
             screen.blit(input_surface, input_rect)
 
         pygame.display.flip()
@@ -274,14 +273,14 @@ def attempt_coin_pickup(player, coin):
                     running_question = False
 
         # Отрисовка вопроса
-        screen.fill(PINK)
+        screen.fill(BROWN)
         question.display_question(screen, font)
 
         # Отрисовка текста ввода для TextAnswerQuestion
         if isinstance(question, TextAnswerQuestion):
-            input_surface = font.render(input_text, True, BLACK)
+            input_surface = font.render(input_text, True, WHITE)
             input_rect = input_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
-            pygame.draw.rect(screen, BLACK, input_rect.inflate(10, 10), 2)
+            pygame.draw.rect(screen, WHITE, input_rect.inflate(10, 10), 2)
             screen.blit(input_surface, input_rect)
 
         pygame.display.flip()
@@ -374,8 +373,13 @@ while running:
                 attempt_coin_pickup(player, None)
 
     # Отрисовка интерфейса
-    screen.fill(PINK)
-    text_surface = font.render(f"Клубнички: {player.coins}", True, BLACK)
+    screen.fill(BROWN)
+    text_surface = font.render(f"Клубнички: {player.coins}", True, WHITE)
+    text_rect = text_surface.get_rect(topleft=(10, 10))
+    screen.blit(text_surface, text_rect)
+    pygame.display.flip()
+
+pygame.quit()
     text_rect = text_surface.get_rect(topleft=(10, 10))
     screen.blit(text_surface, text_rect)
     pygame.display.flip()
