@@ -28,9 +28,6 @@ class LearningElement:
         question_rect = question_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
         screen.blit(question_surface, question_rect)
 
-    def check_answer(self, answer):
-        raise NotImplementedError("Метод check_answer должен быть реализован в дочернем классе.")
-
     def reward(self, screen, font):
         self.answered = True
         text_surface = font.render("Правильный ответ! Клубничка получена.", True, GREEN)
@@ -49,28 +46,28 @@ class LearningElement:
 class MultipleChoiceQuestion(LearningElement):
     def __init__(self, question, options, correct_answer_index):
         super().__init__(question)
-        self.options = options
+        self.options = options #варианты ответа
         self.correct_answer_index = correct_answer_index
-        self.option_rects = []
+        self.option_rects = [] #области клика
 
     def display_question(self, screen, font, y_offset=50):
         super().display_question(screen, font, y_offset)
         self.option_rects = []
         for i, option in enumerate(self.options):
-            option_surface = font.render(f"{i+1}. {option}", True, WHITE)
-            option_rect = option_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset + 50 + (i * 40)))
+            option_surface = font.render(f"{i+1}. {option}", True, WHITE) #текстовая поверхность с номером и текстом варианта
+            option_rect = option_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset + 50 + (i * 40))) #прямоугольная область для клика (центрированную по горизонтали)
             screen.blit(option_surface, option_rect)
             self.option_rects.append(option_rect)
 
-    def check_answer(self, mouse_pos, screen, font):
-        for i, rect in enumerate(self.option_rects):
-            if rect.collidepoint(mouse_pos):
-                if i == self.correct_answer_index:
-                    self.reward(screen, font)
+    def check_answer(self, mouse_pos, screen, font):#проверяем клик(позицию клика)
+        for i, rect in enumerate(self.option_rects): #Проверяет, попал ли клик мышью в какую-либо из областей вариантов
+            if rect.collidepoint(mouse_pos):#проверка находится ли точка клика внутри прямоугольника
+                if i == self.correct_answer_index:#сравнение индекса прямоугольника с индексом верного ответа
+                    self.reward(screen, font) #вызыв функции reward()
                     return True
                 else:
                     self.punish(screen, font) # Вызов punish()
-                    return False # Важно: возвращаем False при неправильном ответе
+                    return False #возвращаем False при неправильном ответе
         return False
 
 class TextAnswerQuestion(LearningElement):
@@ -89,32 +86,37 @@ class TextAnswerQuestion(LearningElement):
 
 class MatchingQuestion(LearningElement):
     def __init__(self, question, column1, column2, correct_matches):
-        """
-        question: текст вопроса
-        column1: элементы первого столбца
-        column2: элементы второго столбца
-        correct_matches: список кортежей вида (индекс из column1, индекс из column2),
-                         которые представляют правильные пары.
-        """
+        
+        #question: текст вопроса
+        #column1: элементы первого столбца
+        #column2: элементы второго столбца
+        #correct_matches: список кортежей вида (индекс из column1, индекс из column2),
+                        # которые представляют правильные пары.
+        
         super().__init__(question)
         self.column1 = column1
         self.column2 = column2
         self.correct_matches = correct_matches
-        self.current_matches = {}  # {индекс_из_column1: индекс_из_column2}
-        self.selected_item = None  # (колонка, индекс)
+        self.current_matches = {}  # текущие сопоставления{индекс_из_column1: индекс_из_column2}
+        self.selected_item = None  # выбранный элемент(колонка, индекс)
 
     def display_question(self, screen, font, y_offset=100):
-        """Отрисовка вопроса и столбцов"""
+        #Отрисовка вопроса и столбцов
         super().display_question(screen, font, y_offset - 50)
 
         # Отрисовка первого столбца
         col1_x = SCREEN_WIDTH // 4
         col2_x = SCREEN_WIDTH * 3 // 4
         for i, item in enumerate(self.column1):
+            # Создание текстовой поверхности
             item_surface = font.render(item, True, WHITE)
+            # Позиционирование прямоугольника
             item_rect = item_surface.get_rect(center=(col1_x, y_offset + i * 50))
+            # Рисование рамки
             pygame.draw.rect(screen, WHITE, item_rect.inflate(10, 10), 2)
+            # Отрисовка текста
             screen.blit(item_surface, item_rect)
+            # Выделение выбранного элемента
             if self.selected_item == ("column1", i):
                 pygame.draw.rect(screen, GREEN, item_rect.inflate(14, 14), 2)
 
@@ -138,7 +140,7 @@ class MatchingQuestion(LearningElement):
             )
 
     def handle_click(self, mouse_pos, font, screen, y_offset=100):
-        """Обработка кликов для выбора и соединения"""
+        #Обработка кликов для выбора и соединения
         col1_x = SCREEN_WIDTH // 4
         col2_x = SCREEN_WIDTH * 3 // 4
 
@@ -235,64 +237,6 @@ def attempt_coin_pickup(player, coin):
     return True
 
 
-#def attempt_coin_pickup(player, coin):
-    import random
-    question = random.choice(questions)
-
-    input_text = ""  # Для TextAnswerQuestion
-    answered_correctly = False  # Флаг, чтобы знать, правильно ли ответили
-
-    running_question = True
-    while running_question:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return False
-
-            # Обработка MultipleChoiceQuestion
-            if isinstance(question, MultipleChoiceQuestion) and event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    answered_correctly = question.check_answer(event.pos, screen, font)
-                    running_question = False
-
-            # Обработка TextAnswerQuestion
-            if isinstance(question, TextAnswerQuestion) and event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    answered_correctly = question.check_answer(input_text, screen, font)
-                    running_question = False
-                elif event.key == pygame.K_BACKSPACE:
-                    input_text = input_text[:-1]
-                else:
-                    input_text += event.unicode
-
-            # Обработка MatchingQuestion
-            if isinstance(question, MatchingQuestion):
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    question.handle_click(event.pos, font, screen)
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
-                    answered_correctly = question.check_answer(None, screen, font)
-                    running_question = False
-
-        # Отрисовка вопроса
-        screen.fill(BROWN)
-        question.display_question(screen, font)
-
-        # Отрисовка текста ввода для TextAnswerQuestion
-        if isinstance(question, TextAnswerQuestion):
-            input_surface = font.render(input_text, True, WHITE)
-            input_rect = input_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
-            pygame.draw.rect(screen, WHITE, input_rect.inflate(10, 10), 2)
-            screen.blit(input_surface, input_rect)
-
-        pygame.display.flip()
-
-    # Добавление монетки за правильный ответ
-    if answered_correctly:
-        player.coins += 1
-        print("Клубничка добавлена!")
-
-    return True  # Игра продолжается
-
-
 # Пример игрока
 class Player:
     def __init__(self):
@@ -375,11 +319,6 @@ while running:
     # Отрисовка интерфейса
     screen.fill(BROWN)
     text_surface = font.render(f"Клубнички: {player.coins}", True, WHITE)
-    text_rect = text_surface.get_rect(topleft=(10, 10))
-    screen.blit(text_surface, text_rect)
-    pygame.display.flip()
-
-pygame.quit()
     text_rect = text_surface.get_rect(topleft=(10, 10))
     screen.blit(text_surface, text_rect)
     pygame.display.flip()
