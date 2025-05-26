@@ -1,40 +1,47 @@
-import os
 import random
 import pygame
 import math
 from os import listdir
 from os.path import isfile, join
+from config import LEVEL_CONFIG
+
+
 pygame.init()
 
-pygame.display.set_caption("Viper")
+pygame.display.set_caption("Duck")
 
 BG_COLOR = (255, 255, 255)
-WIDTH, HEIGHT = 1100,700
+WIDTH, HEIGHT = 1100, 800
+
+PROGRESS_HEIGHT = 20
+STRAWBERRY_ICON = pygame.transform.scale(pygame.image.load("strawberry/ic_strawberry 1.png"), (30, 30))
+ENEMY_ICON = pygame.transform.scale(pygame.image.load("enemy/slime_icon.png"), (35, 30))
+
+BUTTON_COLOR = (1, 11, 64)
+BUTTON_HOVER_COLOR = (1, 11, 64)
+TEXT_COLOR = (255, 255, 255)
 
 FPS = 60
 VEL = 5 #скорость персонажа
 
 window = pygame.display.set_mode((WIDTH, HEIGHT))
 
+#прорисовка фона
 bg_images = []
 for i in range(1, 4):
     bg_image = pygame.image.load(f"Background/Layer_{i}.png").convert_alpha()
-    #bg_images.append(bg_image)
     bg_images.append(pygame.transform.scale(bg_image, (HEIGHT * 1.7, HEIGHT)))
 
 def draw_bg(offset_x):
     for idx, img in enumerate(bg_images):
-        if idx <= 0:
-            window.blit(img, (0, 0))
-        else:
-            speed = 0.2 * (idx)
-            width = img.get_width()
-            x_shift = offset_x * speed
-            
-            current_block = int(x_shift // width)
-            for i in range(current_block - 1, current_block + 2):
-                x_pos = (i * width) - x_shift
-                window.blit(img, (x_pos, 0))
+        speed = 0.2 * (idx+0.3)
+        width = img.get_width()
+        x_shift = offset_x * speed
+        
+        current_block = int(x_shift // width)
+        for i in range(current_block - 1, current_block + 2):  #! OPT: 3 цикла на кадр × 3 слоя = 9 итераций
+            x_pos = (i * width) - x_shift
+            window.blit(img, (x_pos, 0))  #! OPT: Множественные blit-вызовы
 
 def check_block(x, y, objects):
     for (obj_x, obj_y) in objects:
@@ -124,7 +131,9 @@ class Player(pygame.sprite.Sprite):
     SPRITES = load_sprite_sheets("Spritesheets", "", 23, 20, True)
     ANIMATION_DELAY = 8
     DAMAGE = 1
-
+    COLLECTED = 0
+    KILLED = 0
+    
     def __init__(self, x, y, width, height):
         super().__init__()
         self.rect = pygame.Rect(x, y, width, height)
@@ -136,6 +145,9 @@ class Player(pygame.sprite.Sprite):
         self.fall_count = 0
         self.is_falling = True
         self.jump_count = 0
+        self.real_x = x
+        self.level_up_time = 0
+        self.level_completed = False
 
         if self.fall_count > 0:
             self.is_falling = True
@@ -153,6 +165,7 @@ class Player(pygame.sprite.Sprite):
     def move(self, dx, dy): #функция движения персонажа
         self.rect.x += dx
         self.rect.y += dy
+        self.real_x += dx
 
     def move_left(self, vel):
         self.x_vel = -vel
@@ -211,7 +224,7 @@ class Player(pygame.sprite.Sprite):
 
 class Enemy(pygame.sprite.Sprite):
     SPRITES = load_sprite_sheets("enemy", "", 24, 20, True)
-    ANIMATION_DELAY = 8
+    ANIMATION_DELAY = 6
     SPEED = 2  # Скорость движения врага
     HEALTH = 2
 
@@ -235,18 +248,10 @@ class Enemy(pygame.sprite.Sprite):
 
     def check_ground_ahead(self, objects):
         # Создаем область проверки перед врагом
-        if self.move_direction == 1:  # Движение вправо
-            check_x = self.rect.right + 5  # Смещение вправо
-        else:  # Движение влево
-            check_x = self.rect.left - 5  # Смещение влево
+        check_x = self.rect.right + 5 if self.move_direction == 1 else self.rect.left - 5  #! OPT: Пересчет каждый кадр
+        ground_check = pygame.Rect(check_x, self.rect.bottom + 5, 10, 10)  #! OPT: Создание новых Rect
         
-        check_y = self.rect.bottom + 5  # Область под ногами
-        
-        # Прямоугольник для проверки (10x10 пикселей)
-        ground_check = pygame.Rect(check_x, check_y, 10, 10)
-        
-        # Проверяем коллизии с блоками
-        for obj in objects:
+        for obj in objects:  #! OPT: Линейный поиск по всем объектам
             if obj.name == "Block" and ground_check.colliderect(obj.rect):
                 return True
         return False
@@ -352,12 +357,16 @@ class Strawberry(Object):
         self.time = 0  # Счетчик времени
 
     def update(self):
-        # Обновляем позицию по синусоиде
-        self.time += self.speed
+        self.time += self.speed  #! OPT: float-операции
         self.rect.y = self.base_y + math.sin(self.time) * self.amplitude
 
+def draw_text(surface, text, x, y, size=13, color=(0,0,0)):
+    # Масштабируем размер шрифта относительно базового
+    scaled_font = pygame.font.Font('Asset/PublicPixel-rv0pA.ttf', size)
+    text_surface = scaled_font.render(text, True, color)
+    surface.blit(text_surface, (x, y))
 
-def draw(window, player, objects, enemies, offset_x ): #прорисовка всего происходящего 
+def draw(window, player, objects, enemies, offset_x, max_progress, total_straw, total_enemies):
 
     for obj in objects:
         obj.draw(window, offset_x)
@@ -367,9 +376,63 @@ def draw(window, player, objects, enemies, offset_x ): #прорисовка в�
 
     player.draw(window, offset_x)
 
-    pygame.display.update() 
+    # Прогресс уровня поверх подложки
+    level_progress = min(player.rect.x / max_progress, 1.0)
+    pygame.draw.rect(window, (100,100,100), (15, 15, (WIDTH - 30), PROGRESS_HEIGHT))
+    pygame.draw.rect(window, (0,200,0), (15, 15, (WIDTH - 30) * level_progress, PROGRESS_HEIGHT))
 
-def vertical_collision(player, objects, dy, enemies, killed_enemies, collected):
+    # Счетчики коллекций
+    y_offset = PROGRESS_HEIGHT + 25
+    window.blit(STRAWBERRY_ICON, (15, y_offset))
+    draw_text(window, f"{player.COLLECTED}/{total_straw}", 55, y_offset + 10)
+
+    window.blit(ENEMY_ICON, (155, y_offset))
+    draw_text(window, f"{player.KILLED}/{total_enemies}", 195, y_offset + 10)
+
+    draw_text(window, f"Урон: {player.DAMAGE}", 335, y_offset + 10)
+
+    draw_text(window, f"Опыт: ", 475, y_offset + 10)
+    lvl_progress = min(player.KILLED/2, 1)
+    pygame.draw.rect(window, (100,100,100), (545, y_offset + 8, (80), PROGRESS_HEIGHT))
+    pygame.draw.rect(window, (0,200,0), (545, y_offset + 8, (80) * lvl_progress, PROGRESS_HEIGHT))
+
+    current_time = pygame.time.get_ticks()
+    if player.level_up_time != 0 and (current_time - player.level_up_time) < 2000:
+        # Создаем текст
+        font = pygame.font.Font('Asset/PublicPixel-rv0pA.ttf', 15)
+        text_surface = font.render("Новый уровень! Урон повышен!", True, (0, 0, 0))
+        
+        # Создаем фон с скругленными краями
+        padding = 15
+        bg_width = text_surface.get_width() + padding*2
+        bg_height = text_surface.get_height() + padding*2
+        bg_rect = pygame.Rect(0, 0, bg_width, bg_height)
+        bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+        
+        # Рисуем скругленный прямоугольник
+        pygame.draw.rect(bg_surface, (229, 173, 255), bg_rect)
+        pygame.draw.rect(bg_surface, (0, 0, 0), bg_rect, width=2)
+        
+        # Позиционируем внизу экрана
+        pos_x = (WIDTH - bg_width) // 2
+        pos_y = HEIGHT - 80
+        
+        # Собираем вместе
+        window.blit(bg_surface, (pos_x, pos_y))
+        window.blit(text_surface, (pos_x + padding, pos_y + padding))
+
+# Перенесем блок с завершением уровня ВНЕ условия level_up_time
+    if player.level_completed:
+        # Расчет количества звезд
+        stars = 1
+        if player.COLLECTED >= total_straw:
+            stars += 1
+        if player.KILLED >= total_enemies:
+            stars += 1
+
+    pygame.display.update()
+
+def vertical_collision(player, objects, dy, enemies):
     collided_objects = []
     for obj in objects:
         if pygame.sprite.collide_mask(player, obj):
@@ -378,8 +441,7 @@ def vertical_collision(player, objects, dy, enemies, killed_enemies, collected):
                 player.landed()
                 if obj.name == "Strawberry":
                     objects.remove(obj)
-                    collected += 1
-                    print(f"Собрано клубничек: {collected}")
+                    player.COLLECTED += 1
             elif dy < 0:
                 player.rect.top = obj.rect.bottom
                 player.hit_head()
@@ -394,15 +456,16 @@ def vertical_collision(player, objects, dy, enemies, killed_enemies, collected):
                 enemy.HEALTH -= player.DAMAGE
                 if enemy in enemies and enemy.HEALTH <= 0:
                     enemies.remove(enemy)
-                    killed_enemies += 1
-                    print(f"Убито врагов: {killed_enemies}")
-                    if killed_enemies >= 4:
+                    player.KILLED += 1
+                    if player.KILLED >= 2:  # Измените условие с 3 на 4
                         player.DAMAGE = 2
-                player.y_vel -= 4
+                    if player.KILLED == 2:  # Устанавливаем время при достижении 4 убийств
+                        player.level_up_time = pygame.time.get_ticks()
+                player.jump()
 
     return collided_objects
 
-def collide(player, objects, enemies, collected, dx):
+def collide(player, objects, enemies, dx):
     original_rect = player.rect.copy()
     player.rect.y -= 5 
     player.move(dx, 0)
@@ -413,8 +476,7 @@ def collide(player, objects, enemies, collected, dx):
             collided_object = obj
             if collided_object.name == "Strawberry":
                 objects.remove(obj)
-                collected += 1
-                print(f"Собрано клубничек: {collected}")
+                player.COLLECTED += 1
             break
 
     for enemy in enemies:
@@ -432,13 +494,13 @@ def collide(player, objects, enemies, collected, dx):
     return collided_object
 
 
-def move(player, objects, enemies, collected, killed_enemies):
+def move(player, objects, enemies):
         
     keys = pygame.key.get_pressed()  #все нажатые кнопки
 
     player.x_vel = 0
-    collide_left = collide(player, objects, enemies, collected, -VEL)
-    collide_right = collide(player, objects, enemies, collected, VEL)
+    collide_left = collide(player, objects, enemies, -VEL)
+    collide_right = collide(player, objects, enemies, VEL)
 
 
     if (keys[pygame.K_LEFT] or keys[pygame.K_a]) and not collide_left:
@@ -449,7 +511,7 @@ def move(player, objects, enemies, collected, killed_enemies):
     if collide_left == "Game Over!" or collide_right == "Game Over!":
         return False
 
-    vertical_collision(player, objects, player.y_vel, enemies, killed_enemies, collected)
+    vertical_collision(player, objects, player.y_vel, enemies)
     return True
 
 def coord_gen(x, y, x_shift, y_shift, size):
@@ -513,744 +575,53 @@ def gen_enemies(block_size, enemies_config):
     return enemies
 
 # Обновленная функция main
-def main(window):
+def run_game():
     clock = pygame.time.Clock()
+
     block_size = 64
-    player = Player(100, 100, 128, 128)
-    killed_enemies = 0
+    player = Player(block_size *1, (HEIGHT // block_size) * block_size, 128, 128)
 
-    # Конфигурация уровня
-    LEVEL_CONFIG = {
-        "floor_segments": [
-            {
-                'x_start': 0, 
-                'x_end': 3,
-                'y_level': 0,  # 1 блок от низа экрана
-                'layers': 3
-            },
-            {
-                'x_start': 5,
-                'x_end': 5,
-                'y_level': 0,  # на 2 блока выше основного пола
-                'layers': 3
-            },
-            {
-                'x_start': 6,
-                'x_end': 8,
-                'y_level': 0,  # на 2 блока выше основного пола
-                'layers': 4
-            },
-            {
-                'x_start': 10,
-                'x_end': 10,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 11,
-                'x_end': 12,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 13,
-                'x_end': 13,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 14,
-                'x_end': 16,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 17,
-                'x_end': 17,
-                'y_level': 0,
-                'layers': 5
-            },
-            {
-                'x_start': 18,
-                'x_end': 20,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 22,
-                'x_end': 22,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 24,
-                'x_end': 26,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 27,
-                'x_end': 27,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 29,
-                'x_end': 29,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 31,
-                'x_end': 33,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 34,
-                'x_end': 35,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 37,
-                'x_end': 37,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 39,
-                'x_end': 39,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 40,
-                'x_end': 45,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 46,
-                'x_end': 47,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 48,
-                'x_end': 50,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 49,
-                'x_end': 49,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 51,
-                'x_end': 52,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 54,
-                'x_end': 54,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 56,
-                'x_end': 56,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 57,
-                'x_end': 63,
-                'y_level': 0,
-                'layers': 3
-            },
+    max_level_progress = 291 * block_size
+    total_strawberries = len(LEVEL_CONFIG["strawberries"])
+    total_enemies = len(LEVEL_CONFIG["enemies"])
 
-            {
-                'x_start': 58,
-                'x_end': 59,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 64,
-                'x_end': 64,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 65,
-                'x_end': 69,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 68,
-                'x_end': 73,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 74,
-                'x_end': 74,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 75,
-                'x_end': 79,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 78,
-                'x_end': 78,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 81,
-                'x_end': 81,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 83,
-                'x_end': 86,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 87,
-                'x_end': 89,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 89,
-                'x_end': 93,
-                'y_level': 8,
-                'layers': 1
-            },
-            {
-                'x_start': 90,
-                'x_end': 94,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 95,
-                'x_end': 98,
-                'y_level': 0,
-                'layers': 6
-            },
-            {
-                'x_start': 99,
-                'x_end': 100,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 102,
-                'x_end': 103,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 104,
-                'x_end': 104,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 104,
-                'x_end': 113,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 107,
-                'x_end': 108,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 109,
-                'x_end': 113,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 111,
-                'x_end': 113,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 115,
-                'x_end': 116,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 114,
-                'x_end': 124,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 120,
-                'x_end': 122,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 123,
-                'x_end': 124,
-                'y_level': 5,
-                'layers': 2
-            },
-            {
-                'x_start': 121,
-                'x_end': 123,
-                'y_level': 7,
-                'layers': 1
-            },
-            {
-                'x_start': 125,
-                'x_end': 127,
-                'y_level': 0,
-                'layers': 6
-            },
-            {
-                'x_start': 128,
-                'x_end': 130,
-                'y_level': 0,
-                'layers': 7
-            },
-            {
-                'x_start': 131,
-                'x_end': 132,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 133,
-                'x_end': 142,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 133,
-                'x_end': 135,
-                'y_level': 7,
-                'layers': 1
-            },
-            {
-                'x_start': 137,
-                'x_end': 139,
-                'y_level': 8,
-                'layers': 1
-            },
-            {
-                'x_start': 141,
-                'x_end': 142,
-                'y_level': 7,
-                'layers': 1
-            },
-            {
-                'x_start': 144,
-                'x_end': 146,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 144,
-                'x_end': 144,
-                'y_level': 7,
-                'layers': 1
-            },
-            {
-                'x_start': 146,
-                'x_end': 148,
-                'y_level': 7,
-                'layers': 1
-            },
-            {
-                'x_start': 147,
-                'x_end': 149,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 150,
-                'x_end': 150,
-                'y_level': 0,
-                'layers': 5
-            },
-            {
-                'x_start': 151,
-                'x_end': 153,
-                'y_level': 0,
-                'layers': 6
-            },
-            {
-                'x_start': 154,
-                'x_end': 154,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 155,
-                'x_end': 156,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 157,
-                'x_end': 159,
-                'y_level': 0,
-                'layers': 6
-            },
-            {
-                'x_start': 160,
-                'x_end': 162,
-                'y_level': 0,
-                'layers': 7
-            },
-            {
-                'x_start': 163,
-                'x_end': 165,
-                'y_level': 0,
-                'layers': 6
-            },
-            {
-                'x_start': 166,
-                'x_end': 167,
-                'y_level': 0,
-                'layers': 5
-            },
-            {
-                'x_start': 168,
-                'x_end': 179,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 170,
-                'x_end': 170,
-                'y_level': 7,
-                'layers': 3
-            },
-            {
-                'x_start': 171,
-                'x_end': 172,
-                'y_level': 9,
-                'layers': 1
-            },
-            {
-                'x_start': 171,
-                'x_end': 172,
-                'y_level': 7,
-                'layers': 1
-            },
-            {
-                'x_start': 172,
-                'x_end': 173,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 172,
-                'x_end': 172,
-                'y_level': 3,
-                'layers': 1
-            },
-            {
-                'x_start': 174,
-                'x_end': 177,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 175,
-                'x_end': 176,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 179,
-                'x_end': 179,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 181,
-                'x_end': 182,
-                'y_level': 7,
-                'layers': 1
-            },
-            {
-                'x_start': 181,
-                'x_end': 186,
-                'y_level': 3,
-                'layers': 1
-            },
-            {
-                'x_start': 187,
-                'x_end': 189,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 190,
-                'x_end': 195,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 197,
-                'x_end': 198,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 201,
-                'x_end': 207,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 203,
-                'x_end': 205,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 209,
-                'x_end': 211,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 212,
-                'x_end': 213,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 213,
-                'x_end': 217,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 219,
-                'x_end': 221,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 222,
-                'x_end': 222,
-                'y_level': 0,
-                'layers': 5
-            },
-            {
-                'x_start': 224,
-                'x_end': 227,
-                'y_level': 0,
-                'layers': 6
-            },
-            {
-                'x_start': 228,
-                'x_end': 230,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 228,
-                'x_end': 228,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 228, #длинная
-                'x_end': 240,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 233,
-                'x_end': 238,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 240,
-                'x_end': 242,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 244,
-                'x_end': 245,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 243,
-                'x_end': 254,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 245,
-                'x_end': 245,
-                'y_level': 3,
-                'layers': 1
-            },
-            {
-                'x_start': 246,
-                'x_end': 249,
-                'y_level': 3,
-                'layers': 2
-            },
-            {
-                'x_start': 247,
-                'x_end': 249,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 250,
-                'x_end': 254,
-                'y_level': 3,
-                'layers': 1
-            },
-            {
-                'x_start': 251,
-                'x_end': 257,
-                'y_level': 6,
-                'layers': 1
-            },
-            {
-                'x_start': 256,
-                'x_end': 258,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 259,
-                'x_end': 262,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 263,
-                'x_end': 266,
-                'y_level': 4,
-                'layers': 1
-            },
-            {
-                'x_start': 268,
-                'x_end': 271,
-                'y_level': 3,
-                'layers': 1
-            },
-            {
-                'x_start': 272,
-                'x_end': 275,
-                'y_level': 5,
-                'layers': 1
-            },
-            {
-                'x_start': 277,
-                'x_end': 284,
-                'y_level': 0,
-                'layers': 3
-            },
-            {
-                'x_start': 285,
-                'x_end': 288,
-                'y_level': 0,
-                'layers': 4
-            },
-            {
-                'x_start': 289,
-                'x_end': 290,
-                'y_level': 0,
-                'layers': 5
-            },
-            {
-                'x_start': 291,
-                'x_end': 293,
-                'y_level': 0,
-                'layers': 6
-            },
-        ],
-        "strawberries": [
-            (12, 2),
-            (49, 2),
-            (78, 5),
-            (122, 5),
-            (144, 7),
-            (171, 7),
-            (204, 5),
-            (229, 2),
-            (254, 3)
-        ],
-        "enemies": [
-            (41, 2, 0.5, 0.7, random.randint(1, 5)),
-            (74, 3, 0.5, 0.7, random.randint(1, 5)),
-            (106, 2, 0.5, 0.7, random.randint(1, 5)),
-            (119, 2, 0.5, 0.7, random.randint(1, 5)),
-            (136, 2, 0.5, 0.7, random.randint(1, 5)),
-            (183, 3, 0.5, 0.7, random.randint(1, 5)),
-            (215, 2, 0.5, 0.7, random.randint(1, 5)),
-            (234, 2, 0.5, 0.7, random.randint(1, 5)),
-            (281, 2, 0.5, 0.7, random.randint(1, 5))
-        ]
-    }
-
-    # Генерация объектов
-    floor_coords = gen_floor_segments(
-            block_size, 
-            LEVEL_CONFIG["floor_segments"]  # передаем список напрямую
-        )
+    floor_coords = gen_floor_segments(block_size, LEVEL_CONFIG["floor_segments"])
     all_coords = floor_coords
     
     objects = gen_blocks(block_size, all_coords)
     objects.extend(gen_strawberries(block_size, LEVEL_CONFIG["strawberries"]))
     enemies = gen_enemies(block_size, LEVEL_CONFIG["enemies"])
 
-    # Игровой цикл (без изменений)
     offset_x = 0
-    scroll_area_width = 200
+    scroll_area_width = WIDTH / 2.6
     run = True
-    collected = 0
     
     while run:
         clock.tick(FPS)
+        
         draw_bg(offset_x)
 
         player.loop(FPS)
+
+        if (player.rect.x // block_size) == (292):
+            player.level_completed = True
+        
+        if player.rect.y >= ((HEIGHT // block_size) + 1) * block_size:
+            return ("Game Over", window.copy())  # Возвращаем кортеж
+
         for enemy in enemies:
             enemy.loop(objects)
-        run = move(player, objects, enemies, collected, killed_enemies)
+            
+        game_status = move(player, objects, enemies)
+        
+        if game_status == False:
+            return ("Game Over", window.copy())
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                run = False
-                break
-
+                pygame.quit()
+                return "Exit"
+            
             if event.type == pygame.KEYDOWN:
                 if (event.key == pygame.K_SPACE or event.key == pygame.K_UP or event.key == pygame.K_w) and player.jump_count < 2:
                     player.jump()
@@ -1259,15 +630,164 @@ def main(window):
             if isinstance(obj, Strawberry):
                 obj.update()
 
-        draw(window, player, objects, enemies, offset_x)
+        if player.level_completed:
+            snapshot = window.copy()
+            return ("Level Completed", 
+                    player.COLLECTED, 
+                    player.KILLED, 
+                    total_strawberries, 
+                    total_enemies, 
+                    snapshot)
+
+        draw(window, player, objects, enemies, offset_x, max_level_progress, total_strawberries, total_enemies)
 
         if ((player.rect.right - offset_x >= WIDTH - scroll_area_width) and player.x_vel > 0) or (
             (player.rect.left - offset_x <= scroll_area_width) and player.x_vel < 0):
             offset_x += player.x_vel
 
-    pygame.quit()
-    quit()
+def blur_surface(surface, scale_factor=0.05):
+    # Сжать
+    small = pygame.transform.smoothscale(surface, (int(surface.get_width() * scale_factor), int(surface.get_height() * scale_factor)))
+    # Растянуть обратно
+    return pygame.transform.smoothscale(small ,surface.get_size())
+    
 
+
+def game_over_screen():
+    run = True
+
+    snapshot = window.copy()
+    blurred_bg = blur_surface(snapshot)
+
+    # Загрузка изображения "Game Over" (в PNG)
+    game_over_image = pygame.image.load("Asset/GameOver.png")
+    game_over_image = pygame.transform.scale(game_over_image, (450, 150))  # по необходимости подгони размер
+
+    # Кнопки
+    yes_button = pygame.Rect(WIDTH//2 - 110, HEIGHT//2 + 50, 80, 40)
+    no_button = pygame.Rect(WIDTH//2 + 30, HEIGHT//2 + 50, 80, 40)
+
+    while run:
+        window.blit(blurred_bg, (0, 0))  # Чёрный фон
+
+        # Отображение изображения
+        window.blit(game_over_image, (WIDTH//2 - 230, HEIGHT//2 - 150))
+
+        # Текст "RESTART?"
+        draw_text(window, "RESTART?", WIDTH//2 - 80, HEIGHT//2 + 10, 23, (0, 0, 0))
+
+        # Кнопки YES и NO
+        mouse_pos = pygame.mouse.get_pos()
+        pygame.draw.rect(window, (1, 11, 64), yes_button)
+        pygame.draw.rect(window, (1, 11, 64), no_button)
+
+        draw_text(window, "YES", yes_button.x + 16, yes_button.y + 8, 16, (255, 255, 255))
+        draw_text(window, "NO", no_button.x + 22, no_button.y + 8, 16, (255, 255, 255))
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return False
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if yes_button.collidepoint(event.pos):
+                    return True
+                elif no_button.collidepoint(event.pos):
+                    return False
+
+        pygame.display.update()
+        pygame.time.Clock().tick(FPS)
+
+def show_victory_screen(collected, killed, total_straw, total_enemies, snapshot):
+    run = True
+    clock = pygame.time.Clock()
+    blurred_bg = blur_surface(snapshot)
+
+    # Загрузка изображения "Victory" (замените путь на свой)
+    victory_image = pygame.image.load("Asset/Victory.png")  # Ваше изображение
+    victory_image = pygame.transform.scale(victory_image, (450, 200))
+
+    # Рассчитываем звезды
+    stars = 1
+    if collected >= total_straw: stars += 1
+    if killed >= total_enemies: stars += 1
+
+    # Кнопки
+    restart_btn = pygame.Rect(WIDTH//2 - 185, HEIGHT//2 + 100, 180, 40)
+    exit_btn = pygame.Rect(WIDTH//2 + 10, HEIGHT//2 + 100, 180, 40)
+
+    while run:
+        window.blit(blurred_bg, (0, 0))
+        
+        # Отображение изображения победы
+        window.blit(victory_image, (WIDTH//2 - 225, HEIGHT//2 - 210))
+
+        # Панель статистики
+
+        # Статистика
+        stats = [
+            f"Собрано клубники: {collected}/{total_straw}",
+            f"Уничтожено врагов: {killed}/{total_enemies}"
+        ]
+        for i, text in enumerate(stats):
+            draw_text(window, text, WIDTH / 2 - 170, 
+            (HEIGHT / 2) + 180 + i*40, 16, (255, 255, 255))
+
+        # Звезды
+        star_y = (HEIGHT / 2)
+        for i in range(3):
+            star_x = (WIDTH / 2) - 79 + i*80
+            color = (255, 215, 0) if i < stars else (150, 150, 150)
+            pygame.draw.polygon(window, color, [
+                (star_x, star_y), (star_x+8, star_y+25),
+                (star_x+35, star_y+25), (star_x+12, star_y+40),
+                (star_x+20, star_y+65), (star_x, star_y+50),
+                (star_x-20, star_y+65), (star_x-12, star_y+40),
+                (star_x-35, star_y+25), (star_x-8, star_y+25)
+            ])
+
+        # Кнопки
+        mouse_pos = pygame.mouse.get_pos()
+        for btn, text in [(restart_btn, "РЕСТАРТ"), (exit_btn, "ВЫХОД")]:
+            color = BUTTON_HOVER_COLOR if btn.collidepoint(mouse_pos) else BUTTON_COLOR
+            pygame.draw.rect(window, color, btn)
+            draw_text(window, text, btn.x + 45, btn.y + 9, 16, TEXT_COLOR)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if restart_btn.collidepoint(event.pos):
+                    return True
+                if exit_btn.collidepoint(event.pos):
+                    return False
+
+        pygame.display.update()
+        clock.tick(FPS)
+
+def main():
+    while True:
+        game_result = run_game()
+        
+        # Обработка Game Over
+        if game_result[0] == "Game Over":
+            restart = game_over_screen()
+            if not restart: 
+                break
+        
+        # Обработка завершения уровня
+        elif game_result[0] == "Level Completed":
+            _, collected, killed, total_straw, total_enemies, snapshot = game_result
+            restart = show_victory_screen(
+                collected, killed, total_straw, total_enemies, snapshot
+            )
+            if not restart: 
+                break
+        
+        # Выход из игры
+        elif game_result[0] == "Exit":
+            break
 
 if __name__ == "__main__":
-    main(window)
+    window = pygame.display.set_mode((WIDTH, HEIGHT))
+    main()
+    pygame.quit()
