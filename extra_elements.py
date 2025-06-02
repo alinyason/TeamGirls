@@ -46,81 +46,74 @@ class LearningElement:
 class MultipleChoiceQuestion(LearningElement):
     def __init__(self, question, options, correct_answer_index):
         super().__init__(question)
-        self.options = options #варианты ответа
+        self.options = options
         self.correct_answer_index = correct_answer_index
-        self.option_rects = [] #области клика
+        self.option_rects = []
+        self.selected_option = None  # выбранный вариант (индекс)
 
     def display_question(self, screen, font, y_offset=50):
         super().display_question(screen, font, y_offset)
         self.option_rects = []
         for i, option in enumerate(self.options):
-            option_surface = font.render(f"{i+1}. {option}", True, WHITE) #текстовая поверхность с номером и текстом варианта
-            option_rect = option_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset + 50 + (i * 40))) #прямоугольная область для клика (центрированную по горизонтали)
+            color = GREEN if self.selected_option == i else WHITE
+            option_surface = font.render(f"{i+1}. {option}", True, color)
+            option_rect = option_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset + 50 + (i * 40)))
             screen.blit(option_surface, option_rect)
             self.option_rects.append(option_rect)
 
-    def check_answer(self, mouse_pos, screen, font):#проверяем клик(позицию клика)
-        for i, rect in enumerate(self.option_rects): #Проверяет, попал ли клик мышью в какую-либо из областей вариантов
-            if rect.collidepoint(mouse_pos):#проверка находится ли точка клика внутри прямоугольника
-                if i == self.correct_answer_index:#сравнение индекса прямоугольника с индексом верного ответа
-                    self.reward(screen, font) #вызыв функции reward()
-                    return True
-                else:
-                    self.punish(screen, font) # Вызов punish()
-                    return False #возвращаем False при неправильном ответе
-        return False
+    def select_option(self, index):
+        if 0 <= index < len(self.options):
+            self.selected_option = index
 
-class TextAnswerQuestion(LearningElement):
-    def __init__(self, question, correct_answer):
-        super().__init__(question)
-        self.correct_answer = correct_answer.lower()
-
-    def check_answer(self, answer, screen, font):
-        if answer.lower() == self.correct_answer:
+    def check_answer(self, screen, font):
+        if self.selected_option == self.correct_answer_index:
             self.reward(screen, font)
             return True
         else:
-            self.punish(screen, font) # Вызов punish()
-            return False # Важно: возвращаем False при неправильном ответе
+            self.punish(screen, font)
+            return False
 
+
+class TextAnswerQuestion(LearningElement):
+    def __init__(self, question, correct_answers):
+        super().__init__(question)
+        # Принимаем список вариантов правильных ответов
+        self.correct_answers = [ans.lower().strip() for ans in correct_answers]
+
+    def check_answer(self, answer, screen, font):
+        normalized_answer = answer.lower().strip()
+        # Дополнительно можно убрать лишние пробелы внутри строки
+        normalized_answer = " ".join(normalized_answer.split())
+        if normalized_answer in self.correct_answers:
+            self.reward(screen, font)
+            return True
+        else:
+            self.punish(screen, font)
+            return False
 
 class MatchingQuestion(LearningElement):
     def __init__(self, question, column1, column2, correct_matches):
-        
-        #question: текст вопроса
-        #column1: элементы первого столбца
-        #column2: элементы второго столбца
-        #correct_matches: список кортежей вида (индекс из column1, индекс из column2),
-                        # которые представляют правильные пары.
-        
         super().__init__(question)
         self.column1 = column1
         self.column2 = column2
         self.correct_matches = correct_matches
-        self.current_matches = {}  # текущие сопоставления{индекс_из_column1: индекс_из_column2}
-        self.selected_item = None  # выбранный элемент(колонка, индекс)
+        self.current_matches = {}  # {индекс_из_column1: индекс_из_column2}
+        self.selected_item = None  # ('column1' или 'column2', индекс)
 
     def display_question(self, screen, font, y_offset=100):
-        #Отрисовка вопроса и столбцов
         super().display_question(screen, font, y_offset - 50)
 
-        # Отрисовка первого столбца
         col1_x = SCREEN_WIDTH // 4
         col2_x = SCREEN_WIDTH * 3 // 4
+
         for i, item in enumerate(self.column1):
-            # Создание текстовой поверхности
             item_surface = font.render(item, True, WHITE)
-            # Позиционирование прямоугольника
             item_rect = item_surface.get_rect(center=(col1_x, y_offset + i * 50))
-            # Рисование рамки
             pygame.draw.rect(screen, WHITE, item_rect.inflate(10, 10), 2)
-            # Отрисовка текста
             screen.blit(item_surface, item_rect)
-            # Выделение выбранного элемента
             if self.selected_item == ("column1", i):
                 pygame.draw.rect(screen, GREEN, item_rect.inflate(14, 14), 2)
 
-        # Отрисовка второго столбца
         for i, item in enumerate(self.column2):
             item_surface = font.render(item, True, WHITE)
             item_rect = item_surface.get_rect(center=(col2_x, y_offset + i * 50))
@@ -129,7 +122,6 @@ class MatchingQuestion(LearningElement):
             if self.selected_item == ("column2", i):
                 pygame.draw.rect(screen, GREEN, item_rect.inflate(14, 14), 2)
 
-        # Отрисовка текущих соединений
         for col1_idx, col2_idx in self.current_matches.items():
             pygame.draw.line(
                 screen,
@@ -140,38 +132,55 @@ class MatchingQuestion(LearningElement):
             )
 
     def handle_click(self, mouse_pos, font, screen, y_offset=100):
-        #Обработка кликов для выбора и соединения
         col1_x = SCREEN_WIDTH // 4
         col2_x = SCREEN_WIDTH * 3 // 4
 
-        # Проверка нажатия на элементы первого столбца
-        for i, item in enumerate(self.column1):
-            rect = pygame.Rect(0, y_offset + i * 50 - 25, col1_x * 2, 50)
-            if rect.collidepoint(mouse_pos):
+    # Проверка клика по первому столбцу
+        for i in range(len(self.column1)):
+            item_rect = pygame.Rect(
+                col1_x - 100,  # Широкая область клика
+                y_offset + i * 50 - 20,
+                200,  # Ширина области
+                40,   # Высота области
+            )
+            if item_rect.collidepoint(mouse_pos):
                 if self.selected_item == ("column1", i):
-                    self.selected_item = None  # Снимаем выделение
+                    self.selected_item = None  # Сброс выбора
                 else:
                     self.selected_item = ("column1", i)
                 return
 
-        # Проверка нажатия на элементы второго столбца
-        for i, item in enumerate(self.column2):
-            rect = pygame.Rect(col2_x - col1_x, y_offset + i * 50 - 25, col1_x * 2, 50)
-            if rect.collidepoint(mouse_pos):
-                if self.selected_item == ("column2", i):
-                    self.selected_item = None  # Снимаем выделение
+    # Проверка клика по второму столбцу
+        for i in range(len(self.column2)):
+            item_rect = pygame.Rect(
+                col2_x - 100,  # Широкая область клика
+                y_offset + i * 50 - 20,
+                200,
+                40,
+            )
+            if item_rect.collidepoint(mouse_pos):
+            # Если уже выбран элемент из первого столбца — создаём пару
+                if self.selected_item and self.selected_item[0] == "column1":
+                    col1_idx = self.selected_item[1]
+                    self.current_matches[col1_idx] = i  # column1[col1_idx] ↔ column2[i]
+                    self.selected_item = None  # Сброс выбора
                 else:
-                    # Если элемент из первого столбца уже выбран, связываем
-                    if self.selected_item and self.selected_item[0] == "column1":
-                        self.current_matches[self.selected_item[1]] = i
-                        self.selected_item = None  # Сбрасываем выбор
+                # Иначе просто выбираем элемент второго столбца
+                    if self.selected_item == ("column2", i):
+                        self.selected_item = None
                     else:
                         self.selected_item = ("column2", i)
                 return
+    
+    def check_answer(self, _, screen, font):
+        # Проверяем, все ли правильные пары созданы
+        is_correct = True
+        for col1_idx, col2_idx in self.correct_matches:
+            if self.current_matches.get(col1_idx) != col2_idx:
+                is_correct = False
+                break
 
-    def check_answer(self, mouse_pos, screen, font):
-        """Проверка правильности всех соединений"""
-        if set(self.correct_matches) == set(self.current_matches.items()):
+        if is_correct and len(self.current_matches) == len(self.correct_matches):
             self.reward(screen, font)
             return True
         else:
@@ -180,10 +189,10 @@ class MatchingQuestion(LearningElement):
 
 
 def attempt_coin_pickup(player, coin):
-    global current_question_index  # используем глобальный индекс
+    global current_question_index
     if current_question_index >= len(questions):
         print("Все вопросы заданы.")
-        return False  # или current_question_index = 0 для повтора
+        return False
 
     question = questions[current_question_index]
 
@@ -196,20 +205,33 @@ def attempt_coin_pickup(player, coin):
             if event.type == pygame.QUIT:
                 return False
 
-            if isinstance(question, MultipleChoiceQuestion) and event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    answered_correctly = question.check_answer(event.pos, screen, font)
-                    running_question = False
+            # Обработка для MultipleChoiceQuestion
+            if isinstance(question, MultipleChoiceQuestion):
+                if event.type == pygame.KEYDOWN:
+                    # Нажатие цифр 1-9 для выбора варианта
+                    if event.unicode.isdigit():
+                        num = int(event.unicode) - 1
+                        question.select_option(num)
+                    elif event.key == pygame.K_RETURN and question.selected_option is not None:
+                        answered_correctly = question.check_answer(screen, font)
+                        running_question = False
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:
+                        answered_correctly = question.check_answer(event.pos, screen, font)
+                        running_question = False
 
-            elif isinstance(question, TextAnswerQuestion) and event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    answered_correctly = question.check_answer(input_text, screen, font)
-                    running_question = False
-                elif event.key == pygame.K_BACKSPACE:
-                    input_text = input_text[:-1]
-                else:
-                    input_text += event.unicode
+            # Обработка для TextAnswerQuestion
+            elif isinstance(question, TextAnswerQuestion):
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_RETURN:
+                        answered_correctly = question.check_answer(input_text, screen, font)
+                        running_question = False
+                    elif event.key == pygame.K_BACKSPACE:
+                        input_text = input_text[:-1]
+                    else:
+                        input_text += event.unicode
 
+            # Обработка для MatchingQuestion
             elif isinstance(question, MatchingQuestion):
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     question.handle_click(event.pos, font, screen)
@@ -232,10 +254,8 @@ def attempt_coin_pickup(player, coin):
         player.coins += 1
         print("Клубничка добавлена!")
 
-    current_question_index += 1  # переходим к следующему вопросу
-
+    current_question_index += 1
     return True
-
 
 # Пример игрока
 class Player:
@@ -269,17 +289,17 @@ multiQstion3 = MultipleChoiceQuestion(
 
 textQuestion1 = TextAnswerQuestion(
     "Чему равно производная функции 2*x^2?",
-    "4*x"
+    ["4*x","4x","4 * x", "4х", "4*х","4 * х"]
 )
 
 textQuestion2 = TextAnswerQuestion(
     "Как называется точка, в которой производная функции равна нулю?",
-    "точка экстремума"
+    ["точка экстремума", "экстремума"]
 )
 
 textQuestion3 = TextAnswerQuestion(
     "Сколько существует замечательных пределов?",
-    "2"
+    ["2","два"]
 )
 
 matchQuestion1 = MatchingQuestion(
@@ -324,3 +344,4 @@ while running:
     pygame.display.flip()
 
 pygame.quit()
+
