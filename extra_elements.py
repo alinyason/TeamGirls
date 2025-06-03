@@ -20,54 +20,58 @@ font = pygame.font.Font(None, 36)  # Шрифт для текста
 class LearningElement:
     def __init__(self, question):
         self.question = question
-        self.answered = False
+        self.answered = False #отмечает был ли дан правильный ответ
         self.attempts_left = 2 if has_second_chance else 1  # Количество попыток
 
-    def display_question(self, screen, font, y_offset=50):
+    def display_question(self, screen, font, y_offset=50): #отображает вопрос на экране
         question_surface = font.render(self.question, True, WHITE)
+        # Позиционирует текст по центру экрана с отступом сверху
         question_rect = question_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
-        screen.blit(question_surface, question_rect)
+        screen.blit(question_surface, question_rect) # Отображает текст на экране
 
-    def reward(self, screen, font):
-        self.answered = True
+    def reward(self, screen, font): # Метод вызывается при правильном ответе
+        self.answered = True # Помечает вопрос как отвеченный
         text_surface = font.render("Правильный ответ! Клубничка получена.", True, GREEN)
         text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100))
-        screen.blit(text_surface, text_rect)
-        pygame.display.flip()
-        pygame.time.delay(1000)
+        screen.blit(text_surface, text_rect) # Отображает сообщение
+        pygame.display.flip() # Обновляет экран
+        pygame.time.delay(1000) # Задержка 1 секунда для чтения сообщения
 
-    def punish(self, screen, font):
-        self.attempts_left -= 1
-        if self.attempts_left > 0:
+    def punish(self, screen, font): # Метод вызывается при неправильном ответе
+        self.attempts_left -= 1 # Уменьшает количество оставшихся попыток
+        if self.attempts_left > 0: # Если попытки еще остались
             text_surface = font.render("Неправильный ответ! Попробуйте еще раз.", True, RED)
         else:
             text_surface = font.render("Неправильный ответ! Больше попыток нет.", True, RED)
         text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100))
-        screen.blit(text_surface, text_rect)
-        pygame.display.flip()
+        screen.blit(text_surface, text_rect) # Отображает сообщение
+        pygame.display.flip() # Обновляет экран
         pygame.time.delay(1000)
         return self.attempts_left > 0  # Возвращает True, если остались попытки
 
 class MultipleChoiceQuestion(LearningElement):
     def __init__(self, question, options, correct_answer_index):
         super().__init__(question)
-        self.options = options
-        self.correct_answer_index = correct_answer_index
-        self.option_rects = []
+        self.options = options # Список вариантов ответов
+        self.correct_answer_index = correct_answer_index # Индекс правильного ответа
+        self.option_rects = [] # Список для хранения прямоугольников (областей) вариантов ответов
         self.selected_option = None  # выбранный вариант (индекс)
 
-    def display_question(self, screen, font, y_offset=50):
-        super().display_question(screen, font, y_offset)
+    def display_question(self, screen, font, y_offset=50): # Отображение вопроса и вариантов ответа
+        super().display_question(screen, font, y_offset) # Сначала отображаем сам вопрос
         self.option_rects = []
         for i, option in enumerate(self.options):
+            # Выбираем цвет: зеленый для выбранного варианта, белый для остальных
             color = GREEN if self.selected_option == i else WHITE
+            # Создаем текст варианта ответа (с нумерацией)
             option_surface = font.render(f"{i+1}. {option}", True, color)
+            # Позиционируем вариант ответа (ниже вопроса, с отступами)
             option_rect = option_surface.get_rect(center=(SCREEN_WIDTH // 2, y_offset + 50 + (i * 40)))
-            screen.blit(option_surface, option_rect)
-            self.option_rects.append(option_rect)
+            screen.blit(option_surface, option_rect) # Отображаем вариант
+            self.option_rects.append(option_rect)  # Сохраняем прямоугольник для обработки кликов
 
-    def select_option(self, index):
-        if 0 <= index < len(self.options):
+    def select_option(self, index):  # Выбор варианта ответа по индексу
+        if 0 <= index < len(self.options): # Проверка допустимости индекса
             self.selected_option = index
 
     def check_answer(self, screen, font):
@@ -81,7 +85,7 @@ class TextAnswerQuestion(LearningElement):
     def __init__(self, question, correct_answers):
         super().__init__(question)
         # Принимаем список вариантов правильных ответов
-        self.correct_answers = [ans.lower().strip() for ans in correct_answers]
+        self.correct_answers = [ans.lower().strip() for ans in correct_answers] # Нормализуем варианты правильных ответов (нижний регистр, без пробелов по краям)
 
     def check_answer(self, answer, screen, font):
         normalized_answer = answer.lower().strip()
@@ -96,11 +100,11 @@ class TextAnswerQuestion(LearningElement):
 class MatchingQuestion(LearningElement):
     def __init__(self, question, column1, column2, correct_matches):
         super().__init__(question)
-        self.column1 = column1
-        self.column2 = column2
-        self.correct_matches = correct_matches
-        self.current_matches = {}  # {индекс_из_column1: индекс_из_column2}
-        self.selected_item = None  # ('column1' или 'column2', индекс)
+        self.column1 = column1 # Левый столбец элементов для сопоставления
+        self.column2 = column2 # Правый столбец элементов для сопоставления
+        self.correct_matches = correct_matches # Список кортежей правильных соответствий (индекс_столбец1, индекс_столбец2)
+        self.current_matches = {}  # Текущие сопоставления {индекс_столбец1: индекс_столбец2}
+        self.selected_item = None  # Выбранный элемент (хранит кортеж: ('column1'/'column2', индекс))
 
     def display_question(self, screen, font, y_offset=100):
         super().display_question(screen, font, y_offset - 50)
@@ -108,6 +112,7 @@ class MatchingQuestion(LearningElement):
         col1_x = SCREEN_WIDTH // 4
         col2_x = SCREEN_WIDTH * 3 // 4
 
+        # Отрисовка левого столбца
         for i, item in enumerate(self.column1):
             item_surface = font.render(item, True, WHITE)
             item_rect = item_surface.get_rect(center=(col1_x, y_offset + i * 50))
@@ -115,7 +120,7 @@ class MatchingQuestion(LearningElement):
             screen.blit(item_surface, item_rect)
             if self.selected_item == ("column1", i):
                 pygame.draw.rect(screen, GREEN, item_rect.inflate(14, 14), 2)
-
+        # Отрисовка правого столбца
         for i, item in enumerate(self.column2):
             item_surface = font.render(item, True, WHITE)
             item_rect = item_surface.get_rect(center=(col2_x, y_offset + i * 50))
@@ -130,21 +135,22 @@ class MatchingQuestion(LearningElement):
             end_pos = (col2_x - item_rect.width // 2 - 10, y_offset + col2_idx * 50)
             pygame.draw.line(screen, RED, start_pos, end_pos, 2)
 
-    def handle_click(self, mouse_pos, font, screen, y_offset=100):
+    def handle_click(self, mouse_pos, font, screen, y_offset=100): # Обработка кликов мыши
         col1_x = SCREEN_WIDTH // 4
         col2_x = SCREEN_WIDTH * 3 // 4
 
     # Проверка клика по первому столбцу
         for i in range(len(self.column1)):
+            #Область клика для элемента
             item_rect = pygame.Rect(
                 col1_x - 100,
                 y_offset + i * 50 - 20,
                 200,
                 40,
             )
-            if item_rect.collidepoint(mouse_pos):
+            if item_rect.collidepoint(mouse_pos): # Если клик внутри области
                 if self.selected_item == ("column1", i):
-                    self.selected_item = None  # Сброс выбора
+                    self.selected_item = None  # Сброс выбора, если кликнули на уже выбранный
                 else:
                 # Если выбран элемент из правого столбца — создаём пару
                     if self.selected_item and self.selected_item[0] == "column2":
