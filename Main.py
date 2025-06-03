@@ -4,11 +4,13 @@ import math
 from os import listdir
 from os.path import isfile, join
 from config import LEVEL_CONFIG
+from extra_elements import start_question
 
 
 pygame.init()
 
-pygame.display.set_caption("Duck")
+pygame.display.set_caption("Viper")
+
 
 BG_COLOR = (255, 255, 255)
 WIDTH, HEIGHT = 1100, 800
@@ -16,6 +18,7 @@ WIDTH, HEIGHT = 1100, 800
 PROGRESS_HEIGHT = 20
 STRAWBERRY_ICON = pygame.transform.scale(pygame.image.load("strawberry/ic_strawberry 1.png"), (30, 30))
 ENEMY_ICON = pygame.transform.scale(pygame.image.load("enemy/slime_icon.png"), (35, 30))
+HEART_ICON = pygame.transform.scale(pygame.image.load("Asset/heart.png"), (28, 28))
 
 BUTTON_COLOR = (1, 11, 64)
 BUTTON_HOVER_COLOR = (1, 11, 64)
@@ -26,22 +29,22 @@ VEL = 5 #скорость персонажа
 
 window = pygame.display.set_mode((WIDTH, HEIGHT))
 
-#прорисовка фона
 bg_images = []
 for i in range(1, 4):
     bg_image = pygame.image.load(f"Background/Layer_{i}.png").convert_alpha()
+    #bg_images.append(bg_image)
     bg_images.append(pygame.transform.scale(bg_image, (HEIGHT * 1.7, HEIGHT)))
 
 def draw_bg(offset_x):
     for idx, img in enumerate(bg_images):
-        speed = 0.2 * (idx+0.3)
-        width = img.get_width()
-        x_shift = offset_x * speed
-        
-        current_block = int(x_shift // width)
-        for i in range(current_block - 1, current_block + 2):  #! OPT: 3 цикла на кадр × 3 слоя = 9 итераций
-            x_pos = (i * width) - x_shift
-            window.blit(img, (x_pos, 0))  #! OPT: Множественные blit-вызовы
+            speed = 0.2 * (idx+0.3)
+            width = img.get_width()
+            x_shift = offset_x * speed
+            
+            current_block = int(x_shift // width)
+            for i in range(current_block - 1, current_block + 2):
+                x_pos = (i * width) - x_shift
+                window.blit(img, (x_pos, 0))
 
 def check_block(x, y, objects):
     for (obj_x, obj_y) in objects:
@@ -133,7 +136,10 @@ class Player(pygame.sprite.Sprite):
     DAMAGE = 1
     COLLECTED = 0
     KILLED = 0
+    HEALTH = 1
+    ATTEMPT = False
     
+
     def __init__(self, x, y, width, height):
         super().__init__()
         self.rect = pygame.Rect(x, y, width, height)
@@ -148,6 +154,10 @@ class Player(pygame.sprite.Sprite):
         self.real_x = x
         self.level_up_time = 0
         self.level_completed = False
+        self.hp_upgrade_times = 1
+        self.hp_upgraded_time = 0
+        self.attempts_upgrade_times = 1
+        self.attempts_upgrade_time = 0
 
         if self.fall_count > 0:
             self.is_falling = True
@@ -158,8 +168,8 @@ class Player(pygame.sprite.Sprite):
         self.jump_count += 1
         if self.jump_count == 1:
             self.fall_count = 0
-        elif self.jump_count == 2:
-            self.y_vel = -self.GRAVITY *   10
+        elif self.jump_count == 2 :
+            self.y_vel = -self.GRAVITY * 10
             
     
     def move(self, dx, dy): #функция движения персонажа
@@ -224,7 +234,7 @@ class Player(pygame.sprite.Sprite):
 
 class Enemy(pygame.sprite.Sprite):
     SPRITES = load_sprite_sheets("enemy", "", 24, 20, True)
-    ANIMATION_DELAY = 6
+    ANIMATION_DELAY = 8
     SPEED = 2  # Скорость движения врага
     HEALTH = 2
 
@@ -248,10 +258,18 @@ class Enemy(pygame.sprite.Sprite):
 
     def check_ground_ahead(self, objects):
         # Создаем область проверки перед врагом
-        check_x = self.rect.right + 5 if self.move_direction == 1 else self.rect.left - 5  #! OPT: Пересчет каждый кадр
-        ground_check = pygame.Rect(check_x, self.rect.bottom + 5, 10, 10)  #! OPT: Создание новых Rect
+        if self.move_direction == 1:  # Движение вправо
+            check_x = self.rect.right + 5  # Смещение вправо
+        else:  # Движение влево
+            check_x = self.rect.left - 5  # Смещение влево
         
-        for obj in objects:  #! OPT: Линейный поиск по всем объектам
+        check_y = self.rect.bottom + 5  # Область под ногами
+        
+        # Прямоугольник для проверки (10x10 пикселей)
+        ground_check = pygame.Rect(check_x, check_y, 10, 10)
+        
+        # Проверяем коллизии с блоками
+        for obj in objects:
             if obj.name == "Block" and ground_check.colliderect(obj.rect):
                 return True
         return False
@@ -357,7 +375,8 @@ class Strawberry(Object):
         self.time = 0  # Счетчик времени
 
     def update(self):
-        self.time += self.speed  #! OPT: float-операции
+        # Обновляем позицию по синусоиде
+        self.time += self.speed
         self.rect.y = self.base_y + math.sin(self.time) * self.amplitude
 
 def draw_text(surface, text, x, y, size=13, color=(0,0,0)):
@@ -375,7 +394,6 @@ def draw(window, player, objects, enemies, offset_x, max_progress, total_straw, 
         enemy.draw(window, offset_x)
 
     player.draw(window, offset_x)
-
     # Прогресс уровня поверх подложки
     level_progress = min(player.rect.x / max_progress, 1.0)
     pygame.draw.rect(window, (100,100,100), (15, 15, (WIDTH - 30), PROGRESS_HEIGHT))
@@ -396,11 +414,61 @@ def draw(window, player, objects, enemies, offset_x, max_progress, total_straw, 
     pygame.draw.rect(window, (100,100,100), (545, y_offset + 8, (80), PROGRESS_HEIGHT))
     pygame.draw.rect(window, (0,200,0), (545, y_offset + 8, (80) * lvl_progress, PROGRESS_HEIGHT))
 
+    for i in range(player.HEALTH):
+        window.blit(HEART_ICON, (700 + (32 * (i)), y_offset))
+    
+
     current_time = pygame.time.get_ticks()
     if player.level_up_time != 0 and (current_time - player.level_up_time) < 2000:
         # Создаем текст
         font = pygame.font.Font('Asset/PublicPixel-rv0pA.ttf', 15)
         text_surface = font.render("Новый уровень! Урон повышен!", True, (0, 0, 0))
+        
+        # Создаем фон с скругленными краями
+        padding = 15
+        bg_width = text_surface.get_width() + padding*2
+        bg_height = text_surface.get_height() + padding*2
+        bg_rect = pygame.Rect(0, 0, bg_width, bg_height)
+        bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+        
+        # Рисуем скругленный прямоугольник
+        pygame.draw.rect(bg_surface, (229, 173, 255), bg_rect)
+        pygame.draw.rect(bg_surface, (0, 0, 0), bg_rect, width=2)
+        
+        # Позиционируем внизу экрана
+        pos_x = (WIDTH - bg_width) // 2
+        pos_y = HEIGHT - 80
+        
+        # Собираем вместе
+        window.blit(bg_surface, (pos_x, pos_y))
+        window.blit(text_surface, (pos_x + padding, pos_y + padding))
+
+    if player.hp_upgraded_time != 0 and (current_time - player.hp_upgraded_time) < 1500:
+        font = pygame.font.Font('Asset/PublicPixel-rv0pA.ttf', 15)
+        text_surface = font.render("6 Клубничек собрано! Добавлено здоровье!", True, (0, 0, 0))
+        
+        # Создаем фон с скругленными краями
+        padding = 15
+        bg_width = text_surface.get_width() + padding*2
+        bg_height = text_surface.get_height() + padding*2
+        bg_rect = pygame.Rect(0, 0, bg_width, bg_height)
+        bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+        
+        # Рисуем скругленный прямоугольник
+        pygame.draw.rect(bg_surface, (229, 173, 255), bg_rect)
+        pygame.draw.rect(bg_surface, (0, 0, 0), bg_rect, width=2)
+        
+        # Позиционируем внизу экрана
+        pos_x = (WIDTH - bg_width) // 2
+        pos_y = HEIGHT - 80
+        
+        # Собираем вместе
+        window.blit(bg_surface, (pos_x, pos_y))
+        window.blit(text_surface, (pos_x + padding, pos_y + padding))
+
+    if player.attempts_upgrade_time != 0 and (current_time - player.attempts_upgrade_time) < 1500:
+        font = pygame.font.Font('Asset/PublicPixel-rv0pA.ttf', 15)
+        text_surface = font.render("3 Клубнички собрано! Добавлена попытка ответа!", True, (0, 0, 0))
         
         # Создаем фон с скругленными краями
         padding = 15
@@ -433,20 +501,17 @@ def draw(window, player, objects, enemies, offset_x, max_progress, total_straw, 
     pygame.display.update()
 
 def vertical_collision(player, objects, dy, enemies):
-    collided_objects = []
+    collected_strawberry = None
     for obj in objects:
         if pygame.sprite.collide_mask(player, obj):
             if dy > 0:
                 player.rect.bottom = obj.rect.top
                 player.landed()
                 if obj.name == "Strawberry":
-                    objects.remove(obj)
-                    player.COLLECTED += 1
+                    collected_strawberry = obj  # Запоминаем клубничку
             elif dy < 0:
                 player.rect.top = obj.rect.bottom
                 player.hit_head()
-
-        collided_objects.append(obj)
     
     for enemy in list(enemies):
         if pygame.sprite.collide_mask(player, enemy):
@@ -457,33 +522,36 @@ def vertical_collision(player, objects, dy, enemies):
                 if enemy in enemies and enemy.HEALTH <= 0:
                     enemies.remove(enemy)
                     player.KILLED += 1
-                    if player.KILLED >= 2:  # Измените условие с 3 на 4
+                    if player.KILLED >= 2:
                         player.DAMAGE = 2
-                    if player.KILLED == 2:  # Устанавливаем время при достижении 4 убийств
+                    if player.KILLED == 2:
                         player.level_up_time = pygame.time.get_ticks()
                 player.jump()
 
-    return collided_objects
+    return collected_strawberry
 
 def collide(player, objects, enemies, dx):
     original_rect = player.rect.copy()
     player.rect.y -= 5 
     player.move(dx, 0)
     collided_object = None
+    collected_strawberry = None
     
     for obj in objects:
         if player.rect.colliderect(obj.rect) and (obj.name != "Plant"):
             collided_object = obj
             if collided_object.name == "Strawberry":
-                objects.remove(obj)
-                player.COLLECTED += 1
+                collected_strawberry = obj  # Запоминаем клубничку
             break
 
     for enemy in enemies:
         if player.rect.colliderect(enemy.rect):
             if player.rect.clip(enemy.rect).width < player.rect.clip(enemy.rect).height / 4.75:
                 collided_object = enemy
-                return "Game Over!"
+                player.y_vel -= player.GRAVITY * 10
+                player.HEALTH -= 1
+                if player.HEALTH <= 0:
+                    return "Game Over!", None
             elif player.rect.clip(enemy.rect).width > player.rect.clip(enemy.rect).height:
                 collided_object = enemy
         
@@ -491,28 +559,43 @@ def collide(player, objects, enemies, dx):
     player.move(-dx, 0)
     player.rect = original_rect
 
-    return collided_object
+    return collided_object, collected_strawberry  # Возвращаем и объект столкновения, и клубничку
 
 
 def move(player, objects, enemies):
-        
-    keys = pygame.key.get_pressed()  #все нажатые кнопки
+    keys = pygame.key.get_pressed()
+    collected_strawberry = None  # Для хранения собранной клубнички
 
     player.x_vel = 0
-    collide_left = collide(player, objects, enemies, -VEL)
-    collide_right = collide(player, objects, enemies, VEL)
+    result = collide(player, objects, enemies, -VEL)
+    if isinstance(result, tuple) and result[0] == "Game Over!":
+        return "Game Over!", None
+    collide_left, strawberry_left = result if isinstance(result, tuple) else (result, None)
+    
+    result = collide(player, objects, enemies, VEL)
+    if isinstance(result, tuple) and result[0] == "Game Over!":
+        return "Game Over!", None
+    collide_right, strawberry_right = result if isinstance(result, tuple) else (result, None)
 
+    # Проверяем, собрали ли клубничку при горизонтальном движении
+    collected_strawberry = strawberry_left or strawberry_right
 
     if (keys[pygame.K_LEFT] or keys[pygame.K_a]) and not collide_left:
         player.move_left(VEL)  
     if (keys[pygame.K_RIGHT] or keys[pygame.K_d]) and not collide_right:
         player.move_right(VEL)
 
-    if collide_left == "Game Over!" or collide_right == "Game Over!":
-        return False
+    # Проверяем вертикальные коллизии и получаем клубничку
+    vertical_strawberry = vertical_collision(player, objects, player.y_vel, enemies)
+    collected_strawberry = collected_strawberry or vertical_strawberry
 
-    vertical_collision(player, objects, player.y_vel, enemies)
-    return True
+    # Если собрали клубничку - удаляем ее и возвращаем флаг
+    if collected_strawberry:
+        if collected_strawberry in objects:
+            objects.remove(collected_strawberry)
+        return True, collected_strawberry
+
+    return True, None
 
 def coord_gen(x, y, x_shift, y_shift, size):
     coords_x = size * x + x_shift
@@ -577,8 +660,8 @@ def gen_enemies(block_size, enemies_config):
 # Обновленная функция main
 def run_game():
     clock = pygame.time.Clock()
-
     block_size = 64
+    QUESTIONS_ACTIVATED = 0
     player = Player(block_size *1, (HEIGHT // block_size) * block_size, 128, 128)
 
     max_level_progress = 291 * block_size
@@ -598,7 +681,6 @@ def run_game():
     
     while run:
         clock.tick(FPS)
-        
         draw_bg(offset_x)
 
         player.loop(FPS)
@@ -607,14 +689,40 @@ def run_game():
             player.level_completed = True
         
         if player.rect.y >= ((HEIGHT // block_size) + 1) * block_size:
-            return ("Game Over", window.copy())  # Возвращаем кортеж
+            return ("Game Over", window.copy())
 
         for enemy in enemies:
             enemy.loop(objects)
             
-        game_status = move(player, objects, enemies)
+        # Получаем статус игры и информацию о собранной клубничке
+        game_status, collected_strawberry = move(player, objects, enemies)
         
-        if game_status == False:
+        # Обработка собранной клубнички
+        if collected_strawberry:
+            start_question(player, window, (QUESTIONS_ACTIVATED), player.ATTEMPT)
+            QUESTIONS_ACTIVATED += 1
+            # Перерисовываем сцену после вопроса
+            draw_bg(offset_x)
+            for obj in objects:
+                obj.draw(window, offset_x)
+            for enemy in enemies:
+                enemy.draw(window, offset_x)
+            player.draw(window, offset_x)
+            pygame.display.update()
+
+        if player.COLLECTED == 3 and player.attempts_upgrade_times == 1:
+            player.ATTEMPT = True
+            player.attempts_upgrade_time = pygame.time.get_ticks()
+            
+            player.attempts_upgrade_times = 0
+
+        if player.COLLECTED == 6 and player.hp_upgrade_times == 1:
+            player.HEALTH += 1
+            player.hp_upgraded_time = pygame.time.get_ticks()
+            
+            player.hp_upgrade_times = 0
+        
+        if game_status == "Game Over!":
             return ("Game Over", window.copy())
 
         for event in pygame.event.get():
@@ -644,6 +752,7 @@ def run_game():
         if ((player.rect.right - offset_x >= WIDTH - scroll_area_width) and player.x_vel > 0) or (
             (player.rect.left - offset_x <= scroll_area_width) and player.x_vel < 0):
             offset_x += player.x_vel
+
 
 def blur_surface(surface, scale_factor=0.05):
     # Сжать
@@ -690,6 +799,7 @@ def game_over_screen():
                 return False
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if yes_button.collidepoint(event.pos):
+                    QUIESTIONS_ACTIVATED = 0
                     return True
                 elif no_button.collidepoint(event.pos):
                     return False
